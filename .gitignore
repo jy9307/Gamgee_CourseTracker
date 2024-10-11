@@ -1,4 +1,5 @@
 env/
 build/
 dist/
+__pycache__/
 fs_gamgee.json
