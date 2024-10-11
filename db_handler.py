@@ -18,7 +18,8 @@ class AppUserState:
 app_user_state = AppUserState()
 
 # Firestore 초기화
-cred = credentials.Certificate(load_data('fs_gamgee.json'))
+firestore_key_path = load_data('fs_gamgee.json')
+cred = credentials.Certificate(firestore_key_path)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
           

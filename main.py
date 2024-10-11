@@ -333,14 +333,18 @@ class CourseTrackHome(QWidget):
 
     def manual_chrome_auto(self) :
         # CourseTrack 스레드 생성 및 시작
+        # 메인 창 숨기기
+        self.hide()
+
         self.tracker = CourseTrack(manual=True)
         self.tracker.progress_signal.connect(self.update_status)
 
-        # ProgressDialog 설정
-        self.progress_dialog = ProgressDialog(thread=self.tracker)
+        self.progress_dialog = ProgressDialog(parent=self, thread=self.tracker)
+        self.progress_dialog.setWindowModality(Qt.NonModal)
 
         # 시그널 연결
         self.progress_dialog.speed_signal.connect(self.tracker.speed_change)
+        self.progress_dialog.finished.connect(self.show_main_window)  # ProgressDialog가 닫힐 때 메인 창 표시
 
         #로그 기록
         total_field_count_up("total_coursetrack_count")
@@ -613,6 +617,7 @@ class CourseTrack(QThread) :
             # 자동화 메시지 제거 설정
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
             options.add_experimental_option('useAutomationExtension', False)
+            
 
         # 브라우저 윈도우 사이즈
         options.add_argument('window-size=1920x1080')
@@ -625,8 +630,13 @@ class CourseTrack(QThread) :
         # 드라이버 위치 경로 입력
         self.driver = webdriver.Chrome(options=options)
 
-        # navigator.webdriver 속성 삭제
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        if self.manual :
+            pass
+        else :
+            # navigator.webdriver 속성 삭제
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+
 
 ##------------- Tools --------------
 
@@ -686,9 +696,18 @@ class CourseTrack(QThread) :
         hwnd = self.find_window_by_title(window_title)
 
         if hwnd:
-            print(f"창 핸들: {hwnd}")
+            # 창을 최소화했다가 다시 복원 (포커스를 얻기 위함)
+            win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+            time.sleep(0.2)
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
             # 창을 최상단으로 설정
-            win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0)
+            win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, 
+                                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+            # 이후 다시 일반 창으로 설정 (계속 최상단에 고정되지 않도록)
+            win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, 
+                                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+
         else:
             print("창 핸들을 찾을 수 없습니다.")
     
@@ -745,6 +764,7 @@ class CourseTrack(QThread) :
         """, self.video_player)
 
     def cleanup(self):
+        self._is_running = False
         # Safely quit the driver if it's still active
         try:
             if self.driver:
@@ -756,7 +776,8 @@ class CourseTrack(QThread) :
         if self.isRunning():  # self가 QThread일 경우
             try:
                 print("QThread quit...")
-                self.terminate()  # 강제 종료
+                self.quit()  # 강제 종료
+                print("QThread terminated...")
             except Exception as e:
                 print(f"Error while terminating the thread: {e}")
 
@@ -804,7 +825,7 @@ class CourseTrack(QThread) :
         try :
             time.sleep(1)
             # 로딩 스피너가 사라질 때까지 대기
-            WebDriverWait(self.driver, 500).until(
+            WebDriverWait(self.driver, 1000).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, 'vjs-loading-spinner'))
             )
 
@@ -820,9 +841,7 @@ class CourseTrack(QThread) :
 ##------------- Thread process --------------
 
     def log_in(self):
-        if not self.check_running(): 
-            return
-
+        if not self.check_running(): return
         try:
             print("loging in....")
             self.driver.get('https://www.neti.go.kr/system/login/login.do')
@@ -838,17 +857,12 @@ class CourseTrack(QThread) :
 
             print("Login successful and redirected to the main page.")
 
-        except UnexpectedAlertPresentException as UE:
+        except UnexpectedAlertPresentException:
             # unexpected alert 발생 시 처리
             try:
-                alert = self.driver.switch_to.alert  # Alert 객체로 스위치
-                alert_text = alert.text  # 알림 텍스트 가져오기
-
-                # 사용자에게 오류 메시지 전송                
-                print(alert_text)
-                send_error_to_user_firestore(f"로그인 중 오류 발생: Alert Text: {alert_text}")
-                self.error_signal.emit(f"로그인 중 오류 발생: {alert_text}")
-                self.cleanup()
+                send_error_to_user_firestore(f"로그인 중 오류 발생: ")
+                self.error_signal.emit(f"로그인 중 오류 발생")
+                
             except Exception as e:
                 print(f"Error handling alert: {e}")
                 self.error_signal.emit(f"로그인 중 오류 발생: {e}")
@@ -911,6 +925,7 @@ class CourseTrack(QThread) :
             self.cleanup()
         
     def handle_course(self) :
+        if not self.check_running(): return
 
         # 기존 창 핸들 저장``
         original_window = self.driver.current_window_handle
