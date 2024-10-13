@@ -9,10 +9,10 @@ def get_user_data_directory():
     """사용자의 데이터 디렉토리를 반환합니다."""
     if sys.platform == 'win32':
         # Windows의 경우 %APPDATA%\Gamgee 사용
-        user_data_dir = os.path.join(os.getenv('APPDATA'), 'Gamgee')
+        user_data_dir = os.path.join(os.getenv('APPDATA'), 'Gamgee_CourseTracker')
     else:
         # 다른 OS의 경우 ~/.gamgee 사용
-        user_data_dir = os.path.join(os.path.expanduser('~'), '.gamgee')
+        user_data_dir = os.path.join(os.path.expanduser('~'), '.Gamgee_CourseTracker')
     os.makedirs(user_data_dir, exist_ok=True)
     return user_data_dir
 

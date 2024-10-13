@@ -24,12 +24,8 @@ class CourseTrackHome(QWidget):
         super().__init__()
         self.load_account_settings()   
 
-        # 기존 설정 확인
-        self.saved_id = saved_id
-        self.save_account = save_account
-
         # 윈도우 기본 설정
-        self.setWindowTitle('Gamgee v0.42-beta')
+        self.setWindowTitle('Gamgee v0.43-beta')
         self.setStyleSheet("background-color: #f0f0f0;")  # 배경색 설정
 
 
@@ -717,7 +713,6 @@ class CourseTrack(QThread) :
     def mute_browser(self) :
         self.progress_signal.emit("음소거 버튼 찾는 중...")
         print("setting mute....")
-        self.show_player()
         mute_btn = WebDriverWait(self.driver, 10).until(
             EC.any_of(
                 EC.element_to_be_clickable((By.XPATH, '//*[@id="lx-player"]/div[9]/div[1]/button')),
@@ -783,25 +778,22 @@ class CourseTrack(QThread) :
 
     def speed_control(self) :
 
-        if self.play_speed !='1.0x' :
-            print("changing play speed....")
-            self.show_player()
+        print("changing play speed....")
+        # 1. 버튼 클릭
+        button_xpath = '//*[@id="lx-player"]/div[10]/div[9]/button'
+        wait = WebDriverWait(self.driver, 10)
+        button = wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath)))
+        button.click()
 
-            # 1. 버튼 클릭
-            button_xpath = '//*[@id="lx-player"]/div[10]/div[9]/button'
-            wait = WebDriverWait(self.driver, 10)
-            button = wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath)))
-            button.click()
+        # 2. 하위 요소 중에서 self.play_speed와 일치하는 텍스트를 가진 요소 클릭
+        options_xpath = '//*[@id="lx-player"]/div[10]/div[9]/div[2]//span'  # 하위 element들 중 텍스트를 포함하는 요소의 XPath
+        options = wait.until(EC.presence_of_all_elements_located((By.XPATH, options_xpath)))
 
-            # 2. 하위 요소 중에서 self.play_speed와 일치하는 텍스트를 가진 요소 클릭
-            options_xpath = '//*[@id="lx-player"]/div[10]/div[9]/div[2]//span'  # 하위 element들 중 텍스트를 포함하는 요소의 XPath
-            options = wait.until(EC.presence_of_all_elements_located((By.XPATH, options_xpath)))
-
-            # 3. 각 요소를 순회하며 텍스트가 self.play_speed와 일치하는 요소 찾기
-            for option in options:
-                if option.text == self.play_speed:
-                    option.click()  # self.play_speed와 일치하는 요소를 클릭
-                    break
+        # 3. 각 요소를 순회하며 텍스트가 self.play_speed와 일치하는 요소 찾기
+        for option in options:
+            if option.text == self.play_speed:
+                option.click()  # self.play_speed와 일치하는 요소를 클릭
+                break
 
     def play_button_click(self) :
         try : 
@@ -833,7 +825,17 @@ class CourseTrack(QThread) :
                     EC.any_of(
                         EC.element_to_be_clickable((By.XPATH, '//*[@id="lx-player_html5_api"]')),
                 ))
-            stop_button.click()
+            # Try clicking using JavaScript first
+            try:
+                print(f"normal stop button click")
+                stop_button.click()
+                
+            except Exception as e:
+                # If JavaScript click fails, use the default .click() method
+                print(f"Trying JavaScript click")
+                self.driver.execute_script("arguments[0].click();", stop_button)
+                
+
         except Exception as e :
             send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
@@ -921,7 +923,7 @@ class CourseTrack(QThread) :
         
         except Exception as e :
             send_error_to_user_firestore(f"{e}")
-            self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
+            self.error_signal.emit(f"강의 로드 중 오류 발생: {e}")  # 에러 시그널 emit
             self.cleanup()
         
     def handle_course(self) :
@@ -970,12 +972,11 @@ class CourseTrack(QThread) :
 
                 except Exception as e:
                     send_error_to_user_firestore(f"{e}")
-                    self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
+                    self.error_signal.emit(f"비디오 플레이어를 찾는 중 오류 발생: {e}")  # 에러 시그널 emit
                     self.cleanup()
                             
             try :
-                # XPath를 사용하여 비디오 플레이어 요소 찾기
-                # ActionChains를 사용하여 마우스를 비디오 플레이어 위로 이동        
+                # XPath를 사용하여 비디오 플레이어 요소 찾기     
                 self.progress_signal.emit("영상 길이 찾아내는 중...")
                 
                 #영상 길이 찾아내기 
@@ -1029,12 +1030,12 @@ class CourseTrack(QThread) :
 
             except WebDriverException as e :
                 send_error_to_user_firestore(f"{e}")
-                self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
+                self.error_signal.emit(f"동영상 처리 중 오류 발생: {e}")  # 에러 시그널 emit
                 self.cleanup()
             
             except Exception as e :
                 send_error_to_user_firestore(f"{e}")
-                self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
+                self.error_signal.emit(f"동영상 처리 중 오류발생: {e}")  # 에러 시그널 emit
                 self.cleanup()
 
     def run(self):
@@ -1110,7 +1111,7 @@ def ver_check(version) :
     sys.exit(app.exec_())
     
 if __name__ == '__main__':
-    ver = """Gamgee v0.42"""
+    ver = """Gamgee v0.43"""
     ver_check(ver)
     app = QApplication(sys.argv)
 
