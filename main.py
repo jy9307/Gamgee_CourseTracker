@@ -776,24 +776,38 @@ class CourseTrack(QThread) :
             except Exception as e:
                 print(f"Error while terminating the thread: {e}")
 
+    def take_screenshot(self, driver, filename="screenshot.png"):
+        """
+        현재 브라우저 화면을 스크린샷으로 저장하는 함수
+        """
+        try:
+            driver.get_screenshot_as_file(filename)
+            print(f"Screenshot saved as {filename}")
+        except Exception as e:
+            print(f"Error taking screenshot: {e}")
+
     def speed_control(self) :
 
-        print("changing play speed....")
-        # 1. 버튼 클릭
-        button_xpath = '//*[@id="lx-player"]/div[10]/div[9]/button'
-        wait = WebDriverWait(self.driver, 10)
-        button = wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath)))
-        button.click()
+        if self.play_speed == "1.2x" and self.play_speed == "1.5x" and self.play_speed == "0.8x" :
 
-        # 2. 하위 요소 중에서 self.play_speed와 일치하는 텍스트를 가진 요소 클릭
-        options_xpath = '//*[@id="lx-player"]/div[10]/div[9]/div[2]//span'  # 하위 element들 중 텍스트를 포함하는 요소의 XPath
-        options = wait.until(EC.presence_of_all_elements_located((By.XPATH, options_xpath)))
+            print("changing play speed....")
+            # 1. 버튼 클릭
+            button_xpath = '//*[@id="lx-player"]/div[10]/div[9]/button'
+            wait = WebDriverWait(self.driver, 10)
+            button = wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath)))
+            button.click()
 
-        # 3. 각 요소를 순회하며 텍스트가 self.play_speed와 일치하는 요소 찾기
-        for option in options:
-            if option.text == self.play_speed:
-                option.click()  # self.play_speed와 일치하는 요소를 클릭
-                break
+            # 2. 하위 요소 중에서 self.play_speed와 일치하는 텍스트를 가진 요소 클릭
+            options_xpath = '//*[@id="lx-player"]/div[10]/div[9]/div[2]//span'  # 하위 element들 중 텍스트를 포함하는 요소의 XPath
+            options = wait.until(EC.presence_of_all_elements_located((By.XPATH, options_xpath)))
+
+            # 3. 각 요소를 순회하며 텍스트가 self.play_speed와 일치하는 요소 찾기
+            for option in options:
+                if option.text == self.play_speed:
+                    option.click()  # self.play_speed와 일치하는 요소를 클릭
+                    break
+        if self.play_speed == "1.0x" :
+            pass
 
     def play_button_click(self) :
         try : 
@@ -862,10 +876,12 @@ class CourseTrack(QThread) :
         except UnexpectedAlertPresentException:
             # unexpected alert 발생 시 처리
             try:
+                self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
                 send_error_to_user_firestore(f"로그인 중 오류 발생: ")
                 self.error_signal.emit(f"로그인 중 오류 발생")
                 
             except Exception as e:
+                self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
                 print(f"Error handling alert: {e}")
                 self.error_signal.emit(f"로그인 중 오류 발생: {e}")
                 send_error_to_user_firestore(f"Error handling alert: {e}")
@@ -879,6 +895,7 @@ class CourseTrack(QThread) :
             return  # Exit the method to prevent further execution
 
         except Exception as e:
+            self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
             send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
             self.cleanup()
@@ -922,6 +939,7 @@ class CourseTrack(QThread) :
                 self.progress_signal.emit("강의를 발견하지 못했습니다. 다시 시도해주세요.")
         
         except Exception as e :
+            self.take_screenshot(self.driver, "load_course_error.png")  # 스크린샷 찍기
             send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"강의 로드 중 오류 발생: {e}")  # 에러 시그널 emit
             self.cleanup()
@@ -971,6 +989,7 @@ class CourseTrack(QThread) :
                         self.mute_browser()
 
                 except Exception as e:
+                    self.take_screenshot(self.driver, "show_player_error.png")  # 스크린샷 찍기
                     send_error_to_user_firestore(f"{e}")
                     self.error_signal.emit(f"비디오 플레이어를 찾는 중 오류 발생: {e}")  # 에러 시그널 emit
                     self.cleanup()
@@ -985,7 +1004,7 @@ class CourseTrack(QThread) :
                 #재생 속도 조정
                 self.speed_control()
 
-                while (total_time == '') or (total_time == '-:-') or (current_time == '') or (current_time == '-:-'):
+                while (total_time == '') or (total_time == '-:-') or (current_time == '') or (current_time == '-:-') :
 
                     self.progress_signal.emit("영상 길이 찾아내는 중...")
 
@@ -999,14 +1018,22 @@ class CourseTrack(QThread) :
                     current_time = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((By.CLASS_NAME, "vjs-current-time-display"))).text.strip()
                     print(total_time, current_time)
+                    
+                    total_time = total_time.split(":")
+                    total_time = int(total_time[0])*60 + int(total_time[1])
 
-                total_time = total_time.split(":")
-                total_time = int(total_time[0])*60 + int(total_time[1])
+                    current_time = current_time.split(":")
+                    current_time = int(current_time[0])*60 + int(current_time[1])
 
-                current_time = current_time.split(":")
-                current_time = int(current_time[0])*60 + int(current_time[1])
+                    # 만약 오류로 현재 시간과 전체 시간이 동일하게 추출될 경우, 전체 시간을 남은 시간으로 설정
+                    if total_time == current_time :
+                        remain_time = total_time
 
-                remain_time = total_time-current_time
+                    # 아닐 경우 전체 시간에서 현재 시점을 빼서 시간 계산
+                    else :
+                        remain_time = total_time-current_time
+
+    
                 
                 # 재생속도에 따라 남은 시간 계산
                 if self.play_speed != '1.0x' and self.play_speed == '1.2x' :
@@ -1029,11 +1056,13 @@ class CourseTrack(QThread) :
                 self.progress_signal.emit("다음 강의 시작!")
 
             except WebDriverException as e :
+                self.take_screenshot(self.driver, "play_error.png")  # 스크린샷 찍기
                 send_error_to_user_firestore(f"{e}")
                 self.error_signal.emit(f"동영상 처리 중 오류 발생: {e}")  # 에러 시그널 emit
                 self.cleanup()
             
             except Exception as e :
+                self.take_screenshot(self.driver, "play_error.png")  # 스크린샷 찍기
                 send_error_to_user_firestore(f"{e}")
                 self.error_signal.emit(f"동영상 처리 중 오류발생: {e}")  # 에러 시그널 emit
                 self.cleanup()
