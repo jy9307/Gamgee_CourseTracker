@@ -603,7 +603,8 @@ class CourseTrack(QThread) :
         self._is_running = True
         self.mute_mode = False
         self.play_speed = '1.0x'
-        
+        self.browser_hidden_state = False
+
         options = webdriver.ChromeOptions()
 
         if self.manual :
@@ -614,7 +615,6 @@ class CourseTrack(QThread) :
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
             options.add_experimental_option('useAutomationExtension', False)
             
-
         # 브라우저 윈도우 사이즈
         options.add_argument('window-size=1920x1080')
 
@@ -631,8 +631,6 @@ class CourseTrack(QThread) :
         else :
             # navigator.webdriver 속성 삭제
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-
 
 ##------------- Tools --------------
 
@@ -653,17 +651,26 @@ class CourseTrack(QThread) :
     def countdown_timer(self, seconds):
         for remaining in range(seconds, 0, -1):
             self.progress_signal.emit(f"남은 시간: {remaining}초")
+            print(f"남은 시간: {remaining}초")
     
             time.sleep(1)
         self.progress_signal.emit("타이머 종료!")
     
     def hide_browser(self) :
+        if self.browser_hidden_state == False  and self.driver.get_window_position() != (-3000,0):
+            print("The window is hidden.....")
+            # 현재 브라우저 위치 저장
+            self.window_position = self.driver.get_window_position()
+            
+            # 브라우저를 화면 밖으로 이동
+            self.driver.set_window_position(-3000, 0)
+            self.browser_hidden_state = True
 
-        # 현재 브라우저 위치 저장
-        self.window_position = self.driver.get_window_position()
-        
-        # 브라우저를 화면 밖으로 이동
-        self.driver.set_window_position(-3000, 0)
+        else :
+            print("Failed to Hide the window ")
+            print(self.browser_hidden_state)
+            print(self.driver.get_window_position())
+            pass
 
     def find_window_by_title(self,title):
         hwnd = None
@@ -676,36 +683,40 @@ class CourseTrack(QThread) :
         return hwnd
 
     def restore_browser(self) :
-        if hasattr(self, 'window_position'):
-            x = self.window_position['x']
-            y = self.window_position['y']
-            self.driver.set_window_position(x, y)
-        else:
-            # 위치가 저장되어 있지 않으면 기본 위치로 설정
-            self.driver.set_window_position(500, 0)
+        if self.browser_hidden_state :
+            print("The window iss restored")
+            if hasattr(self, 'window_position'):
+                x = self.window_position['x']
+                y = self.window_position['y']
+                self.driver.set_window_position(x, y)
+            else:
+                # 위치가 저장되어 있지 않으면 기본 위치로 설정
+                self.driver.set_window_position(500, 0)
 
-        # Selenium 창의 제목을 가져옴
-        window_title = self.driver.title
-        print(f"찾고 있는 창 제목: {window_title}")
+            # Selenium 창의 제목을 가져옴
+            window_title = self.driver.title
+            print(f"찾고 있는 창 제목: {window_title}")
 
-        # EnumWindows를 사용하여 창 핸들을 얻음
-        hwnd = self.find_window_by_title(window_title)
+            # EnumWindows를 사용하여 창 핸들을 얻음
+            hwnd = self.find_window_by_title(window_title)
 
-        if hwnd:
-            # 창을 최소화했다가 다시 복원 (포커스를 얻기 위함)
-            win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
-            time.sleep(0.2)
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            if hwnd:
+                # 창을 최소화했다가 다시 복원 (포커스를 얻기 위함)
+                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+                time.sleep(0.2)
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
-            # 창을 최상단으로 설정
-            win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, 
-                                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
-            # 이후 다시 일반 창으로 설정 (계속 최상단에 고정되지 않도록)
-            win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, 
-                                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+                # 창을 최상단으로 설정
+                win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, 
+                                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+                # 이후 다시 일반 창으로 설정 (계속 최상단에 고정되지 않도록)
+                win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, 
+                                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
 
-        else:
-            print("창 핸들을 찾을 수 없습니다.")
+            else:
+                print("창 핸들을 찾을 수 없습니다.")
+
+            self.browser_hidden_state = False
     
     def mute_browser_request(self):
         self.mute_mode = True  # 음소거 신호가 들어오면 상태를 True로 변경
@@ -784,11 +795,12 @@ class CourseTrack(QThread) :
             driver.get_screenshot_as_file(filename)
             print(f"Screenshot saved as {filename}")
         except Exception as e:
+            self.cleanup()
             print(f"Error taking screenshot: {e}")
 
     def speed_control(self) :
-
-        if self.play_speed == "1.2x" and self.play_speed == "1.5x" and self.play_speed == "0.8x" :
+        print("Change speed...")
+        if self.play_speed.strip() == "1.2x" or self.play_speed.strip() == "1.5x" or self.play_speed.strip() == "0.8x" :
 
             print("changing play speed....")
             # 1. 버튼 클릭
@@ -806,13 +818,14 @@ class CourseTrack(QThread) :
                 if option.text == self.play_speed:
                     option.click()  # self.play_speed와 일치하는 요소를 클릭
                     break
-        if self.play_speed == "1.0x" :
+        elif self.play_speed.strip() == "1.0x" :
+            print("not change play_speed")
             pass
 
     def play_button_click(self) :
         try : 
             time.sleep(1)
-            WebDriverWait(self.driver, 500).until(
+            WebDriverWait(self.driver, 1000).until(
             EC.invisibility_of_element_located((By.CLASS_NAME, 'vjs-loading-spinner'))
         )
             #퀴즈 페이지 아닐 경우 재생 버튼 나올때까지 기다려서 클릭
@@ -828,6 +841,7 @@ class CourseTrack(QThread) :
             self.cleanup()
 
     def stop_button_click(self) :
+        
         try :
             time.sleep(1)
             # 로딩 스피너가 사라질 때까지 대기
@@ -945,6 +959,7 @@ class CourseTrack(QThread) :
             self.cleanup()
         
     def handle_course(self) :
+        self.browser_hidden_state = False
         if not self.check_running(): return
 
         # 기존 창 핸들 저장``
@@ -966,7 +981,7 @@ class CourseTrack(QThread) :
             self.pass_quiz()
 
         except :
-        #퀴즈 페이지 아닐 경우 재생 버튼 나올때까지 기다려서 클릭
+        # 퀴즈 페이지 아닐 경우 재생 버튼 나올때까지 기다려서 클릭
             self.play_button_click()
 
         while 1 :
@@ -1001,8 +1016,6 @@ class CourseTrack(QThread) :
                 #영상 길이 찾아내기 
                 total_time=''
 
-                #재생 속도 조정
-                self.speed_control()
 
                 while (total_time == '') or (total_time == '-:-') or (current_time == '') or (current_time == '-:-') :
 
@@ -1043,11 +1056,26 @@ class CourseTrack(QThread) :
                 elif  self.play_speed != '1.0x' and self.play_speed == '0.8x' :
                     remain_time *= (5/4)
 
+                #재생 속도 조정
+                self.speed_control()
+
                 #다시 재생
                 self.play_button_click()
 
                 self.countdown_timer(int(remain_time)+4)
-                    
+
+                try:
+                    # 가끔 로딩스피너가 뜨면서 무한로딩이 걸리는 경우가 있다.
+                    # 이 경우에는 다시 처음으로 돌아가서
+                    WebDriverWait(self.driver, 10).until(
+                        EC.visibility_of_element_located((By.CLASS_NAME, 'vjs-loading-spinner'))
+                    )
+                    print("spinner bug on")
+                    send_error_to_user_firestore("Spinner_bug")
+                    continue
+
+                except :
+                    pass
                 #다음 누르기
                 element = WebDriverWait(self.driver, 60).until(
                     EC.element_to_be_clickable((By.XPATH, '//*[@id="next-btn"]'))
