@@ -651,7 +651,8 @@ class CourseTrack(QThread) :
     def countdown_timer(self, seconds):
         for remaining in range(seconds, 0, -1):
             self.progress_signal.emit(f"남은 시간: {remaining}초")
-            print(f"남은 시간: {remaining}초")
+            if remaining%10 == 0 :
+                print(f"남은 시간: {remaining}초")
     
             time.sleep(1)
         self.progress_signal.emit("타이머 종료!")
@@ -709,17 +710,18 @@ class CourseTrack(QThread) :
                 # 창을 최상단으로 설정
                 win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, 
                                     win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
-                # 이후 다시 일반 창으로 설정 (계속 최상단에 고정되지 않도록)
-                win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, 
-                                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
-
             else:
                 print("창 핸들을 찾을 수 없습니다.")
 
             self.browser_hidden_state = False
     
     def mute_browser_request(self):
-        self.mute_mode = True  # 음소거 신호가 들어오면 상태를 True로 변경
+        if not self.mute_mode :
+            print("Activate mute mode")
+            self.mute_mode = True  # 음소거 신호가 들어오면 상태를 True로 변경
+        elif self.mute_mode :
+            print("Deactivate mute mode")
+            self.mute_mode = False
 
     def mute_browser(self) :
         self.progress_signal.emit("음소거 버튼 찾는 중...")
@@ -783,6 +785,7 @@ class CourseTrack(QThread) :
             try:
                 print("QThread quit...")
                 self.quit()  # 강제 종료
+                self.terminate()
                 print("QThread terminated...")
             except Exception as e:
                 print(f"Error while terminating the thread: {e}")
@@ -825,7 +828,7 @@ class CourseTrack(QThread) :
     def play_button_click(self) :
         try : 
             time.sleep(1)
-            WebDriverWait(self.driver, 1000).until(
+            WebDriverWait(self.driver, 2000).until(
             EC.invisibility_of_element_located((By.CLASS_NAME, 'vjs-loading-spinner'))
         )
             #퀴즈 페이지 아닐 경우 재생 버튼 나올때까지 기다려서 클릭
@@ -836,16 +839,17 @@ class CourseTrack(QThread) :
             ))
             play_button.click()
         except Exception as e :
+            self.cleanup()
             send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
-            self.cleanup()
-
+            
     def stop_button_click(self) :
         
         try :
+            print(f"normal stop button click")
             time.sleep(1)
             # 로딩 스피너가 사라질 때까지 대기
-            WebDriverWait(self.driver, 1000).until(
+            WebDriverWait(self.driver, 2000).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, 'vjs-loading-spinner'))
             )
 
@@ -853,21 +857,38 @@ class CourseTrack(QThread) :
                     EC.any_of(
                         EC.element_to_be_clickable((By.XPATH, '//*[@id="lx-player_html5_api"]')),
                 ))
-            # Try clicking using JavaScript first
-            try:
-                print(f"normal stop button click")
-                stop_button.click()
-                
-            except Exception as e:
-                # If JavaScript click fails, use the default .click() method
-                print(f"Trying JavaScript click")
-                self.driver.execute_script("arguments[0].click();", stop_button)
-                
 
+            stop_button.click()
+            
         except Exception as e :
+            self.cleanup()
             send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
-            self.cleanup()
+
+    def next_button_click(self) :
+
+            element = WebDriverWait(self.driver, 60).until(
+            EC.element_to_be_clickable((By.XPATH, '//*[@id="next-btn"]'))
+            )
+            element.click()
+
+    def time_check(self) :
+        
+        total_time = WebDriverWait(self.driver, 3).until(
+            EC.any_of(
+                EC.presence_of_element_located((By.XPATH, '//*[@id="lx-player"]/div[9]/div[4]/span[2]')),
+                EC.presence_of_element_located((By.XPATH, '//*[@id="lx-player"]/div[10]/div[4]/span[2]'))
+            )
+        ).text.strip()
+
+        self.progress_signal.emit("현재 시점 찾아내는 중...")
+        current_time = WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "vjs-current-time-display"))
+        ).text.strip()
+
+        return total_time, current_time
+
+            
 ##------------- Thread process --------------
 
     def log_in(self):
@@ -895,24 +916,27 @@ class CourseTrack(QThread) :
                 self.error_signal.emit(f"로그인 중 오류 발생")
                 
             except Exception as e:
+                self.cleanup()
                 self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
                 print(f"Error handling alert: {e}")
                 self.error_signal.emit(f"로그인 중 오류 발생: {e}")
                 send_error_to_user_firestore(f"Error handling alert: {e}")
-                self.cleanup()
+                
             
         except TimeoutException:
+            self.cleanup()
             error_message = "로그인 후 메인 페이지로 이동하지 못했습니다."
             send_error_to_user_firestore(error_message)
             self.error_signal.emit(error_message)
-            self.cleanup()
+            
             return  # Exit the method to prevent further execution
 
         except Exception as e:
+            self.cleanup()
             self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
             send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
-            self.cleanup()
+            
             return  # Exit the method to prevent further execution
         
     def load_course(self) :
@@ -953,16 +977,17 @@ class CourseTrack(QThread) :
                 self.progress_signal.emit("강의를 발견하지 못했습니다. 다시 시도해주세요.")
         
         except Exception as e :
+            self.cleanup()
             self.take_screenshot(self.driver, "load_course_error.png")  # 스크린샷 찍기
             send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"강의 로드 중 오류 발생: {e}")  # 에러 시그널 emit
-            self.cleanup()
-        
-    def handle_course(self) :
+            
+    def handle_course(self):
         self.browser_hidden_state = False
-        if not self.check_running(): return
+        if not self.check_running():
+            return
 
-        # 기존 창 핸들 저장``
+        # 기존 창 핸들 저장
         original_window = self.driver.current_window_handle
 
         # 모든 창 핸들 가져오기
@@ -975,98 +1000,85 @@ class CourseTrack(QThread) :
                 self.driver.switch_to.window(window_handle)
                 print(self.driver.title)  # 새 창의 제목 출력
                 break
-            
-        #퀴즈 페이지일 경우 - class가 "quiz-type"이면 우측 하단에 '학습 완료 후 여기를 클릭하세요'가 나온다.
-        try :
-            self.pass_quiz()
 
-        except :
-        # 퀴즈 페이지 아닐 경우 재생 버튼 나올때까지 기다려서 클릭
+        # 퀴즈 페이지일 경우
+        try:
+            self.pass_quiz()
+            print("Quiz pass")
+        except:
+            # 퀴즈 페이지가 아닐 경우 재생 버튼 대기 후 클릭
             self.play_button_click()
 
-        while 1 :
-            #일시정지
+        while True:
             try:
-                # 우선 퀴즈인지 확인한다
+                # 퀴즈 화면인지 확인
                 self.progress_signal.emit("퀴즈 화면인지 확인 중...")
                 self.pass_quiz()
+                print("Quiz pass")
                 continue  # 퀴즈일 경우 루프 계속
 
             except:
+                # 만약 다음 루프가 시작되었는데 다음강의로 넘어가지 않고 마지막에 머물러있는 오류가 날 경우, 다음버튼을 한번 더 누른다.
+                try : 
+                    total_time, current_time = self.time_check()
+                    if total_time == current_time :
+                        print("시간 오류 발생")
+                        self.next_button_click()
+                        continue
+                except :
+                    pass
+
                 self.stop_button_click()
-                # 퀴즈가 아닐 경우 처리
+
                 try:
-                    # 먼저 비디오 플레이어를 찾는다.
+                    # 비디오 플레이어 찾기
                     self.progress_signal.emit("비디오 플레이어 위치 확인 중...")
 
-                    # 음소거 모드가 켜져있을 경우 음소거 버튼을 찾고 클릭한다.
+                    # 음소거 모드 확인 및 음소거 버튼 클릭
                     if self.mute_mode:
                         self.mute_browser()
 
                 except Exception as e:
-                    self.take_screenshot(self.driver, "show_player_error.png")  # 스크린샷 찍기
-                    send_error_to_user_firestore(f"{e}")
-                    self.error_signal.emit(f"비디오 플레이어를 찾는 중 오류 발생: {e}")  # 에러 시그널 emit
                     self.cleanup()
-                            
-            try :
-                # XPath를 사용하여 비디오 플레이어 요소 찾기     
+                    self.take_screenshot(self.driver, "show_player_error.png")
+                    send_error_to_user_firestore(f"{e}")
+                    self.error_signal.emit(f"비디오 플레이어를 찾는 중 오류 발생: {e}")
+                    
+
+            try:
+                # 영상 길이 및 현재 시점 확인
                 self.progress_signal.emit("영상 길이 찾아내는 중...")
-                
-                #영상 길이 찾아내기 
-                total_time=''
+                total_time, current_time = '', ''
 
-
-                while (total_time == '') or (total_time == '-:-') or (current_time == '') or (current_time == '-:-') :
-
+                while (total_time == '' or total_time == '-:-' or current_time == '' or current_time == '-:-'):
                     self.progress_signal.emit("영상 길이 찾아내는 중...")
 
-                    total_time = WebDriverWait(self.driver, 3).until(
-                    EC.any_of(
-                        EC.presence_of_element_located((By.XPATH, '//*[@id="lx-player"]/div[9]/div[4]/span[2]')),
-                        EC.presence_of_element_located((By.XPATH, '//*[@id="lx-player"]/div[10]/div[4]/span[2]')),
-                    ))
-                    total_time = total_time.text.strip()
-                    self.progress_signal.emit("현재 시점 찾아내는 중...")
-                    current_time = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((By.CLASS_NAME, "vjs-current-time-display"))).text.strip()
-                    print(total_time, current_time)
-                    
-                    total_time = total_time.split(":")
-                    total_time = int(total_time[0])*60 + int(total_time[1])
+                    total_time, current_time = self.time_check()
 
-                    current_time = current_time.split(":")
-                    current_time = int(current_time[0])*60 + int(current_time[1])
+                    # 시간 문자열을 초로 변환
+                    total_time = int(total_time.split(":")[0]) * 60 + int(total_time.split(":")[1])
+                    current_time = int(current_time.split(":")[0]) * 60 + int(current_time.split(":")[1])
 
-                    # 만약 오류로 현재 시간과 전체 시간이 동일하게 추출될 경우, 전체 시간을 남은 시간으로 설정
-                    if total_time == current_time :
-                        remain_time = total_time
+                    # 남은 시간 계산
+                    remain_time = total_time - current_time if total_time != current_time else total_time
 
-                    # 아닐 경우 전체 시간에서 현재 시점을 빼서 시간 계산
-                    else :
-                        remain_time = total_time-current_time
-
-    
-                
-                # 재생속도에 따라 남은 시간 계산
-                if self.play_speed != '1.0x' and self.play_speed == '1.2x' :
+                # 재생속도에 따라 남은 시간 조정
+                if self.play_speed == '1.2x':
                     remain_time *= (5/6)
-                elif  self.play_speed != '1.0x' and self.play_speed == '1.5x' :
+                elif self.play_speed == '1.5x':
                     remain_time *= (2/3)
-                elif  self.play_speed != '1.0x' and self.play_speed == '0.8x' :
+                elif self.play_speed == '0.8x':
                     remain_time *= (5/4)
 
-                #재생 속도 조정
+                # 재생 속도 조정 및 재생
                 self.speed_control()
-
-                #다시 재생
                 self.play_button_click()
-
-                self.countdown_timer(int(remain_time)+4)
-
+                self.countdown_timer(int(remain_time) + 4)
+                
+                # 로딩 스피너 버그 체크
+                # 만약 카운트다운이 끝났는데 스피너가 돌아가고 있을 수 있다. 이 경우에는 다시 루프를 시작하고 스피너가 사라질때까지 기다기도록 한다.
                 try:
-                    # 가끔 로딩스피너가 뜨면서 무한로딩이 걸리는 경우가 있다.
-                    # 이 경우에는 다시 처음으로 돌아가서
+                    
                     WebDriverWait(self.driver, 10).until(
                         EC.visibility_of_element_located((By.CLASS_NAME, 'vjs-loading-spinner'))
                     )
@@ -1074,27 +1086,34 @@ class CourseTrack(QThread) :
                     send_error_to_user_firestore("Spinner_bug")
                     continue
 
-                except :
+                except:
                     pass
-                #다음 누르기
-                element = WebDriverWait(self.driver, 60).until(
-                    EC.element_to_be_clickable((By.XPATH, '//*[@id="next-btn"]'))
-                )
-                element.click()
-                self.progress_signal.emit("다음 강의 시작!")
 
-            except WebDriverException as e :
-                self.take_screenshot(self.driver, "play_error.png")  # 스크린샷 찍기
-                send_error_to_user_firestore(f"{e}")
-                self.error_signal.emit(f"동영상 처리 중 오류 발생: {e}")  # 에러 시그널 emit
+                # 최종체크 - > 현재 강의가 종료되었는지 마지막으로 확인하고 다음 버튼을 클릭한다.
+                # 만약 강의가 모종의 이유로(중간에 로딩이 걸린다든지) 중간에 멈추었다면 카운트다운이 끝나도 다음버튼이 안나올 것. 따라서 이 경우에는 루프를 다시 시작한다.
+                try : 
+                    total_time, current_time = self.time_check()
+                    if total_time == current_time :
+                        self.next_button_click()
+                        print("move on to the next course")
+                        self.progress_signal.emit("다음 강의 시작!")                        
+                except :
+                    print("spinner error occured in the middle of the course")
+                    continue
+                
+            except WebDriverException as e:
                 self.cleanup()
-            
-            except Exception as e :
-                self.take_screenshot(self.driver, "play_error.png")  # 스크린샷 찍기
+                self.take_screenshot(self.driver, "play_error.png")
                 send_error_to_user_firestore(f"{e}")
-                self.error_signal.emit(f"동영상 처리 중 오류발생: {e}")  # 에러 시그널 emit
-                self.cleanup()
+                self.error_signal.emit(f"동영상 처리 중 오류 발생: {e}")
+                
 
+            except Exception as e:
+                self.cleanup()
+                self.take_screenshot(self.driver, "play_error.png")
+                send_error_to_user_firestore(f"{e}")
+                self.error_signal.emit(f"동영상 처리 중 오류발생: {e}")               
+                
     def run(self):
         if self.manual :
             # 수동 모드의 경우, 스레드에서 강의 로드, 강의 처리 메서드 실행
