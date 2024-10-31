@@ -784,8 +784,9 @@ class CourseTrack(QThread) :
         if self.isRunning():  # self가 QThread일 경우
             try:
                 print("QThread quit...")
-                self.quit()  # 강제 종료
-                self.terminate()
+                self.stop()
+                self.quit()
+                self.wait()
                 print("QThread terminated...")
             except Exception as e:
                 print(f"Error while terminating the thread: {e}")
@@ -798,8 +799,9 @@ class CourseTrack(QThread) :
             driver.get_screenshot_as_file(filename)
             print(f"Screenshot saved as {filename}")
         except Exception as e:
-            self.cleanup()
+            
             print(f"Error taking screenshot: {e}")
+            self.cleanup()
 
     def speed_control(self) :
         print("Change speed...")
@@ -827,6 +829,7 @@ class CourseTrack(QThread) :
 
     def play_button_click(self) :
         try : 
+            print(f"play button find")
             time.sleep(1)
             WebDriverWait(self.driver, 2000).until(
             EC.invisibility_of_element_located((By.CLASS_NAME, 'vjs-loading-spinner'))
@@ -838,15 +841,19 @@ class CourseTrack(QThread) :
                     EC.element_to_be_clickable((By.XPATH, '//*[@id="lx-player"]/div[4]/button[2]'))
             ))
             play_button.click()
+            print(f"play button click")
         except Exception as e :
-            self.cleanup()
+            self.error_signal.emit("""프로그램 작동간에 에러가 발생하였습니다.
+            다시 '실행'버튼을 눌러주세요.""")
             send_error_to_user_firestore(f"{e}")
-            self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
+            print("플레이 버튼 클릭 실패")   # 에러 시그널 emit
+
+            self.cleanup()
             
     def stop_button_click(self) :
         
         try :
-            print(f"normal stop button click")
+            print(f"stop button find")
             time.sleep(1)
             # 로딩 스피너가 사라질 때까지 대기
             WebDriverWait(self.driver, 2000).until(
@@ -859,11 +866,15 @@ class CourseTrack(QThread) :
                 ))
 
             stop_button.click()
+            print(f"stop button click")
             
         except Exception as e :
-            self.cleanup()
+            self.error_signal.emit("""프로그램 작동간에 에러가 발생하였습니다.
+            다시 '실행'버튼을 눌러주세요.""")  # 에러 시그널 emit
+            
             send_error_to_user_firestore(f"{e}")
-            self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
+            print("정지 버튼 클릭 실패")
+            self.cleanup()
 
     def next_button_click(self) :
 
@@ -911,32 +922,37 @@ class CourseTrack(QThread) :
         except UnexpectedAlertPresentException:
             # unexpected alert 발생 시 처리
             try:
+                self.error_signal.emit(f"로그인 중 오류 발생")
                 self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
                 send_error_to_user_firestore(f"로그인 중 오류 발생: ")
-                self.error_signal.emit(f"로그인 중 오류 발생")
+                self.cleanup()
+
                 
             except Exception as e:
-                self.cleanup()
+                self.error_signal.emit(f"로그인 중 오류 발생: {e}")
+                
                 self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
                 print(f"Error handling alert: {e}")
-                self.error_signal.emit(f"로그인 중 오류 발생: {e}")
                 send_error_to_user_firestore(f"Error handling alert: {e}")
+
+                self.cleanup()
                 
             
         except TimeoutException:
+            self.error_signal.emit(error_message)
             self.cleanup()
             error_message = "로그인 후 메인 페이지로 이동하지 못했습니다."
             send_error_to_user_firestore(error_message)
-            self.error_signal.emit(error_message)
             
             return  # Exit the method to prevent further execution
 
         except Exception as e:
-            self.cleanup()
-            self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
-            send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"로그인 중 오류 발생: {e}")  # 에러 시그널 emit
             
+            self.take_screenshot(self.driver, "log_in_error.png")  # 스크린샷 찍기
+            send_error_to_user_firestore(f"{e}")
+            self.cleanup()
+
             return  # Exit the method to prevent further execution
         
     def load_course(self) :
@@ -977,11 +993,12 @@ class CourseTrack(QThread) :
                 self.progress_signal.emit("강의를 발견하지 못했습니다. 다시 시도해주세요.")
         
         except Exception as e :
-            self.cleanup()
-            self.take_screenshot(self.driver, "load_course_error.png")  # 스크린샷 찍기
-            send_error_to_user_firestore(f"{e}")
             self.error_signal.emit(f"강의 로드 중 오류 발생: {e}")  # 에러 시그널 emit
             
+            self.take_screenshot(self.driver, "load_course_error.png")  # 스크린샷 찍기
+            send_error_to_user_firestore(f"{e}")
+            self.cleanup()
+
     def handle_course(self):
         self.browser_hidden_state = False
         if not self.check_running():
@@ -1000,6 +1017,8 @@ class CourseTrack(QThread) :
                 self.driver.switch_to.window(window_handle)
                 print(self.driver.title)  # 새 창의 제목 출력
                 break
+            
+        loop_count = 0 
 
         # 퀴즈 페이지일 경우
         try:
@@ -1010,6 +1029,8 @@ class CourseTrack(QThread) :
             self.play_button_click()
 
         while True:
+            loop_count +=1
+            print(f"현재 {loop_count}회 째 반복")
             try:
                 # 퀴즈 화면인지 확인
                 self.progress_signal.emit("퀴즈 화면인지 확인 중...")
@@ -1021,7 +1042,8 @@ class CourseTrack(QThread) :
                 # 만약 다음 루프가 시작되었는데 다음강의로 넘어가지 않고 마지막에 머물러있는 오류가 날 경우, 다음버튼을 한번 더 누른다.
                 try : 
                     total_time, current_time = self.time_check()
-                    if total_time == current_time :
+                    if total_time == current_time and total_time != "":
+                        print(f"전체시간 : {total_time}, 현재 시간 : {current_time}")
                         print("시간 오류 발생")
                         self.next_button_click()
                         continue
@@ -1039,10 +1061,14 @@ class CourseTrack(QThread) :
                         self.mute_browser()
 
                 except Exception as e:
-                    self.cleanup()
+                    self.error_signal.emit(f"비디오 플레이어를 찾는 중 오류 발생: {e}")
+                    print("비디오 위치 찾기 실패")
+                    
                     self.take_screenshot(self.driver, "show_player_error.png")
                     send_error_to_user_firestore(f"{e}")
-                    self.error_signal.emit(f"비디오 플레이어를 찾는 중 오류 발생: {e}")
+
+                    self.cleanup()
+                    
                     
 
             try:
@@ -1102,18 +1128,21 @@ class CourseTrack(QThread) :
                     continue
                 
             except WebDriverException as e:
-                self.cleanup()
-                self.take_screenshot(self.driver, "play_error.png")
-                send_error_to_user_firestore(f"{e}")
                 self.error_signal.emit(f"동영상 처리 중 오류 발생: {e}")
                 
-
-            except Exception as e:
-                self.cleanup()
                 self.take_screenshot(self.driver, "play_error.png")
                 send_error_to_user_firestore(f"{e}")
-                self.error_signal.emit(f"동영상 처리 중 오류발생: {e}")               
+
+                self.cleanup()
+        
+            except Exception as e:
+                self.error_signal.emit(f"동영상 처리 중 오류발생: {e}")  
                 
+                self.take_screenshot(self.driver, "play_error.png")
+                send_error_to_user_firestore(f"{e}")
+
+                self.cleanup()
+                             
     def run(self):
         if self.manual :
             # 수동 모드의 경우, 스레드에서 강의 로드, 강의 처리 메서드 실행
