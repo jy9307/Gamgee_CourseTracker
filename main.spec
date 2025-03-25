@@ -32,7 +32,7 @@ exe = EXE(
     strip=False,  # 바이너리 스트리핑 비활성화
     upx=True,  # UPX로 압축, UPX가 없으면 False로 설정
     console=False,  # GUI 애플리케이션의 경우 False, 콘솔 애플리케이션은 True
-    icon='gamgee_icon.ico',  # 아이콘 설정
+    icon='edudocs_logo.ico',  # 아이콘 설정
     onefile=True  # 하나의 실행 파일로 묶음
 )
 
@@ -43,5 +43,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name='gamgee'
+    name='Edudocs_CourseTracker'
 )
